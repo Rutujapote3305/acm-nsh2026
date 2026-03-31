@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Orbital Insight — ACM Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:#050a14; --panel:#0a1628; --border:#1a3050;
+      --accent:#00d4ff; --green:#00ff88; --yellow:#ffcc00;
+      --red:#ff4455; --orange:#ff8800; --text:#c8d8f0; --dim:#4a6080;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:'Courier New',monospace;
+         font-size:11px;overflow:hidden;height:100vh;display:flex;flex-direction:column}
+
+    /* ── Header ── */
+    #hdr{background:var(--panel);border-bottom:1px solid var(--border);
+         padding:5px 12px;display:flex;align-items:center;gap:12px;flex-shrink:0}
+    #hdr h1{font-size:13px;color:var(--accent);letter-spacing:2px}
+    .pill{background:var(--bg);border:1px solid var(--border);border-radius:4px;
+          padding:3px 8px;font-size:10px;white-space:nowrap}
+    .pill span{font-weight:bold}
+    .pill.alert{border-color:var(--red);animation:blink 1s infinite}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+    #sim-clock{color:var(--green);font-size:10px;margin-left:auto;white-space:nowrap}
+    #dot{width:8px;height:8px;border-radius:50%;background:var(--green);
+         animation:pulse 2s infinite;flex-shrink:0}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+    /* speed controls */
+    #speed-wrap{display:flex;align-items:center;gap:5px;font-size:10px}
+    #speed-wrap label{color:var(--dim)}
+    #speed-btn{background:var(--accent);color:#000;border:none;border-radius:3px;
+               padding:2px 8px;cursor:pointer;font-size:10px;font-weight:bold}
+    #speed-btn:hover{opacity:.8}
+    #pause-btn{background:var(--yellow);color:#000;border:none;border-radius:3px;
+               padding:2px 8px;cursor:pointer;font-size:10px;font-weight:bold}
+
+    /* ── Layout ── */
+    #main{display:grid;grid-template-columns:1fr 320px;grid-template-rows:1fr 190px;
+          gap:3px;padding:3px;flex:1;min-height:0}
+
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:4px;
+           overflow:hidden;position:relative}
+    .ptitle{position:absolute;top:5px;left:8px;font-size:9px;color:var(--accent);
+            letter-spacing:1px;text-transform:uppercase;z-index:10;pointer-events:none}
+
+    /* ground track */
+    #gt-panel{grid-row:1;grid-column:1}
+    #gt-canvas{width:100%;height:100%;display:block}
+
+    /* right column */
+    #right{grid-row:1/3;grid-column:2;display:flex;flex-direction:column;gap:3px}
+    #bs-panel{flex:0 0 290px;position:relative}
+    #bs-canvas{width:100%;height:280px;display:block}
+    #fuel-panel{flex:1;overflow:hidden}
+    #fuel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(48px,1fr));
+               gap:2px;padding:22px 5px 5px;overflow-y:auto;height:100%}
+    .fc{background:var(--bg);border:1px solid var(--border);border-radius:3px;
+        padding:2px;text-align:center;cursor:pointer;transition:border-color .2s}
+    .fc:hover,.fc.sel{border-color:var(--accent);box-shadow:0 0 5px var(--accent)}
+    .fc.warn{border-color:var(--yellow)}
+    .fc.crit{border-color:var(--red);animation:blink .8s infinite}
+    .fb-wrap{width:100%;height:36px;background:#111;border-radius:2px;
+             overflow:hidden;display:flex;flex-direction:column-reverse}
+    .fb{width:100%;transition:height .6s}
+    .fl{font-size:7px;color:var(--dim);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+    /* bottom row */
+    #bot{grid-row:2;grid-column:1;display:flex;gap:3px}
+    #dv-panel{flex:1}
+    #gantt-panel{flex:2}
+    #dv-wrap{padding:20px 5px 5px;height:100%}
+    #dv-chart{width:100%!important;height:100%!important}
+    #gantt-wrap{padding:20px 5px 5px;overflow-x:auto;height:100%}
+    #gantt-cv{display:block}
+
+    /* CDM overlay */
+    #cdm-list{position:absolute;top:24px;right:5px;width:200px;max-height:150px;
+              overflow-y:auto;z-index:20;display:flex;flex-direction:column;gap:2px}
+    .cdm{background:rgba(10,22,40,.92);border-left:3px solid var(--red);
+         padding:2px 5px;font-size:9px;line-height:1.5}
+    .cdm.w{border-left-color:var(--yellow)}
+    .cdm.c{border-left-color:var(--green)}
+
+    /* alert banner */
+    #alert-banner{position:fixed;top:36px;left:50%;transform:translateX(-50%);
+                  background:#ff445599;border:1px solid var(--red);border-radius:4px;
+                  padding:5px 16px;font-size:11px;z-index:200;display:none;
+                  text-align:center;pointer-events:none}
+
+    #tooltip{position:fixed;background:rgba(10,22,40,.97);border:1px solid var(--accent);
+             border-radius:4px;padding:6px 10px;font-size:10px;pointer-events:none;
+             display:none;z-index:300;line-height:1.7}
+
+    ::-webkit-scrollbar{width:4px;height:4px}
+    ::-webkit-scrollbar-track{background:var(--bg)}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div id="hdr">
+  <div id="dot"></div>
+  <h1>🛰 ORBITAL INSIGHT</h1>
+  <div class="pill">SATS <span id="hSats">—</span></div>
+  <div class="pill">DEBRIS <span id="hDeb">—</span></div>
+  <div class="pill" id="hCdmPill">CDMs <span id="hCdm">0</span></div>
+  <div class="pill" id="hCritPill">CRITICAL <span id="hCrit">0</span></div>
+  <div class="pill">ΔV <span id="hDv">0.00</span> m/s</div>
+  <div class="pill">MANEUVERS <span id="hManv">0</span></div>
+  <div id="speed-wrap">
+    <label>SPEED:</label>
+    <button id="speed-btn" onclick="cycleSpeed()">60×</button>
+    <button id="pause-btn" onclick="togglePause()">⏸ PAUSE</button>
+  </div>
+  <div id="sim-clock">SIM ──────────────────Z</div>
+</div>
+
+<!-- MAIN GRID -->
+<div id="main">
+
+  <!-- Ground Track -->
+  <div class="panel" id="gt-panel">
+    <div class="ptitle">◉ GROUND TRACK — MERCATOR</div>
+    <canvas id="gt-canvas"></canvas>
+    <div id="cdm-list"></div>
+  </div>
+
+  <!-- Right column -->
+  <div id="right">
+    <div class="panel" id="bs-panel">
+      <div class="ptitle">◎ CONJUNCTION BULLSEYE</div>
+      <canvas id="bs-canvas"></canvas>
+    </div>
+    <div class="panel" id="fuel-panel">
+      <div class="ptitle">⬛ FUEL RESERVES</div>
+      <div id="fuel-grid"></div>
+    </div>
+  </div>
+
+  <!-- Bottom -->
+  <div id="bot">
+    <div class="panel" id="dv-panel">
+      <div class="ptitle">📊 ΔV COST vs CDMs</div>
+      <div id="dv-wrap"><canvas id="dv-chart"></canvas></div>
+    </div>
+    <div class="panel" id="gantt-panel">
+      <div class="ptitle">📅 MANEUVER TIMELINE</div>
+      <div id="gantt-wrap"><canvas id="gantt-cv"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<div id="alert-banner"></div>
+<div id="tooltip"></div>
+
+<script>
+// ════════════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════════════
+let snap = null, status = null;
+let selectedSat = null;
+let dvHist = [], cdmHist = [];
+const satTrails = {};      // sat_id → [[px,py], ...]
+const TRAIL = 40;          // max trail points
+let paused = false;
+const SPEEDS = [1, 10, 60, 120, 300];
+let speedIdx = 2;  // default 60×
+
+// ════════════════════════════════════════════════════════════════
+//  PIXI — Ground Track
+// ════════════════════════════════════════════════════════════════
+const gtPanel  = document.getElementById('gt-panel');
+const gtCanvas = document.getElementById('gt-canvas');
+
+PIXI.settings.RESOLUTION = window.devicePixelRatio || 1;
+const pApp = new PIXI.Application({
+  view: gtCanvas, backgroundAlpha: 0,
+  resizeTo: gtPanel, antialias: false, autoDensity: true,
+});
+
+const layerBg    = new PIXI.Graphics();
+const layerTrail = new PIXI.Graphics();
+const layerDeb   = new PIXI.ParticleContainer(20000, { position:true, tint:true });
+const layerSat   = new PIXI.Container();
+const layerRing  = new PIXI.Graphics();
+
+pApp.stage.addChild(layerBg, layerTrail, layerDeb, layerRing, layerSat);
+
+// Textures
+function dotTex(r, color) {
+  const g = new PIXI.Graphics();
+  g.beginFill(color); g.drawCircle(0,0,r); g.endFill();
+  return pApp.renderer.generateTexture(g);
+}
+const TEX_DEB  = dotTex(2, 0x336688);
+const TEX_SAT  = dotTex(5, 0x00d4ff);
+const TEX_WARN = dotTex(5, 0xffcc00);
+const TEX_CRIT = dotTex(6, 0xff4455);
+
+let debSprites = [];
+
+function lonToX(lon, w) { return (lon + 180) / 360 * w; }
+function latToY(lat, h)  { return (1 - (lat + 90) / 180) * h; }
+
+function drawWorldBg() {
+  const w = gtPanel.clientWidth, h = gtPanel.clientHeight;
+  layerBg.clear();
+  layerBg.beginFill(0x050a14); layerBg.drawRect(0,0,w,h); layerBg.endFill();
+
+  // Grid lines
+  layerBg.lineStyle(.5, 0x1a3050, .7);
+  for (let la=-60; la<=60; la+=30) {
+    const py = latToY(la, h);
+    layerBg.moveTo(0,py); layerBg.lineTo(w,py);
+  }
+  for (let lo=-180; lo<=180; lo+=30) {
+    const px = lonToX(lo, w);
+    layerBg.moveTo(px,0); layerBg.lineTo(px,h);
+  }
+  // Equator
+  layerBg.lineStyle(1, 0x1a4060, 1);
+  layerBg.moveTo(0, latToY(0,h)); layerBg.lineTo(w, latToY(0,h));
+
+  // Terminator
+  drawTerminator(w, h);
+
+  // Ground station markers
+  const GS = [
+    [13.03,77.52,'BLR'],[78.23,15.41,'SVB'],[35.43,-116.89,'GLD'],
+    [-53.15,-70.92,'PTA'],[28.55,77.19,'DEL'],[-77.85,166.67,'MCM']
+  ];
+  GS.forEach(([la,lo,name]) => {
+    const px = lonToX(lo,w), py = latToY(la,h);
+    layerBg.lineStyle(1, 0x00d4ff, .5);
+    layerBg.drawCircle(px, py, 5);
+    // Label - done via text objects but keep it simple with just dots
+  });
+}
+
+function drawTerminator(w, h) {
+  const now = snap ? new Date(snap.timestamp) : new Date();
+  const doy = Math.floor((now - new Date(now.getFullYear(),0,0)) / 86400000);
+  const dec = 23.45 * Math.sin(Math.PI/180 * (360/365*(doy-81)));
+  const subLon = -(now.getUTCHours()*15 + now.getUTCMinutes()*.25 - 180);
+  const decR = dec * Math.PI/180;
+
+  layerBg.lineStyle(1, 0x3355aa, .5);
+  let prevX = null, prevY = null;
+  for (let lon=-180; lon<=180; lon+=2) {
+    const lonR = (lon - subLon)*Math.PI/180;
+    const lat  = Math.atan(-Math.cos(lonR)/Math.tan(decR))*180/Math.PI;
+    const px = lonToX(lon,w), py = latToY(lat,h);
+    if (prevX!==null) { layerBg.moveTo(prevX,prevY); layerBg.lineTo(px,py); }
+    prevX=px; prevY=py;
+  }
+  // Night overlay
+  layerBg.beginFill(0x000820, .25);
+  const pts = [];
+  for (let lon=-180; lon<=181; lon+=3) {
+    const lonR = (lon-subLon)*Math.PI/180;
+    const lat  = Math.atan(-Math.cos(lonR)/Math.tan(decR))*180/Math.PI;
+    pts.push(lonToX(lon,w), latToY(lat,h));
+  }
+  if (dec >= 0) { pts.push(lonToX(180,w),h, lonToX(-180,w),h); }
+  else          { pts.push(lonToX(180,w),0, lonToX(-180,w),0); }
+  layerBg.drawPolygon(pts); layerBg.endFill();
+}
+
+function renderGroundTrack() {
+  if (!snap) return;
+  const w = gtPanel.clientWidth, h = gtPanel.clientHeight;
+
+  drawWorldBg();
+
+  // Debris particles
+  const dData = snap.debris_cloud;
+  while (debSprites.length < dData.length) {
+    const sp = new PIXI.Sprite(TEX_DEB);
+    sp.anchor.set(.5); sp.alpha = .45;
+    layerDeb.addChild(sp); debSprites.push(sp);
+  }
+  for (let i=0; i<debSprites.length; i++) {
+    if (i < dData.length) {
+      const [,lat,lon] = dData[i];
+      debSprites[i].x = lonToX(lon,w);
+      debSprites[i].y = latToY(lat,h);
+      debSprites[i].visible = true;
+    } else { debSprites[i].visible = false; }
+  }
+
+  // Satellite trails + dots
+  layerTrail.clear();
+  layerSat.removeChildren();
+  layerRing.clear();
+
+  for (const sat of snap.satellites) {
+    const px = lonToX(sat.lon, w), py = latToY(sat.lat, h);
+
+    // Update trail
+    if (!satTrails[sat.id]) satTrails[sat.id] = [];
+    const trail = satTrails[sat.id];
+    // Only add if position changed meaningfully
+    if (!trail.length || Math.hypot(px-trail[trail.length-1][0], py-trail[trail.length-1][1]) > 0.3) {
+      trail.push([px,py]);
+      if (trail.length > TRAIL) trail.shift();
+    }
+
+    // Draw trail
+    if (trail.length > 1) {
+      for (let i=1; i<trail.length; i++) {
+        const a = (i/trail.length) * .7;
+        layerTrail.lineStyle(1, 0x00d4ff, a);
+        layerTrail.moveTo(trail[i-1][0], trail[i-1][1]);
+        layerTrail.lineTo(trail[i][0], trail[i][1]);
+      }
+    }
+
+    // Ring for selected satellite
+    if (sat.id === selectedSat) {
+      layerRing.lineStyle(1.5, 0x00d4ff, .9);
+      layerRing.drawCircle(px, py, 10);
+      layerRing.lineStyle(.5, 0x00d4ff, .3);
+      layerRing.drawCircle(px, py, 20);
+    }
+
+    // Satellite dot
+    const hasCrit = sat.active_conjunctions > 0 && sat.status === 'EVADING';
+    const hasWarn = sat.active_conjunctions > 0;
+    const tex = hasCrit ? TEX_CRIT : hasWarn ? TEX_WARN : TEX_SAT;
+    const sp = new PIXI.Sprite(tex);
+    sp.anchor.set(.5); sp.x = px; sp.y = py;
+    sp.interactive = true; sp.cursor = 'pointer';
+    sp.on('pointerover', e => showTip(e, sat));
+    sp.on('pointerout',  () => hideTip());
+    sp.on('pointerdown', () => { selectedSat = sat.id; });
+    layerSat.addChild(sp);
+
+    // Pulse ring for satellites with active conjunctions
+    if (sat.active_conjunctions > 0) {
+      layerRing.lineStyle(1, hasCrit ? 0xff4455 : 0xffcc00, .6);
+      layerRing.drawCircle(px, py, 8 + Math.sin(Date.now()/300)*3);
+    }
+  }
+
+  updateCdmList();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  BULLSEYE
+// ════════════════════════════════════════════════════════════════
+const bsCv  = document.getElementById('bs-canvas');
+const bsCtx = bsCv.getContext('2d');
+
+function drawBullseye() {
+  const w = bsCv.width  = bsCv.parentElement.clientWidth;
+  const h = bsCv.height = 280;
+  const cx = w/2, cy = h/2 + 8, maxR = Math.min(cx,cy)-18;
+
+  bsCtx.fillStyle='#050a14'; bsCtx.fillRect(0,0,w,h);
+
+  // Rings
+  const rings=[{r:maxR,lbl:'5km',c:'#1a3050'},{r:maxR*.6,lbl:'1km',c:'#1f3d2a'},{r:maxR*.2,lbl:'100m',c:'#3d2020'}];
+  rings.forEach(({r,lbl,c})=>{
+    bsCtx.strokeStyle=c; bsCtx.lineWidth=1; bsCtx.setLineDash([3,3]);
+    bsCtx.beginPath(); bsCtx.arc(cx,cy,r,0,Math.PI*2); bsCtx.stroke();
+    bsCtx.setLineDash([]);
+    bsCtx.fillStyle='#4a6080'; bsCtx.font='8px Courier New';
+    bsCtx.fillText(lbl, cx+r+2, cy-2);
+  });
+
+  // Crosshairs
+  bsCtx.strokeStyle='#1a3050'; bsCtx.lineWidth=.5;
+  bsCtx.beginPath();
+  bsCtx.moveTo(cx-maxR,cy); bsCtx.lineTo(cx+maxR,cy);
+  bsCtx.moveTo(cx,cy-maxR); bsCtx.lineTo(cx,cy+maxR);
+  bsCtx.stroke();
+
+  // Centre sat
+  bsCtx.fillStyle='#00d4ff';
+  bsCtx.beginPath(); bsCtx.arc(cx,cy,5,0,Math.PI*2); bsCtx.fill();
+  bsCtx.fillStyle='#00d4ff'; bsCtx.font='9px Courier New';
+  bsCtx.fillText(selectedSat ? selectedSat.slice(-6) : 'CLICK SAT', cx+7, cy-6);
+
+  if (!status) return;
+  const evs = status.conjunctions.filter(
+    e => !selectedSat || e.satellite_id===selectedSat
+  );
+
+  const pulse = Math.sin(Date.now()/400)*0.15 + 0.85;
+  evs.slice(0,30).forEach(ev=>{
+    const frac  = Math.min(ev.miss_distance_km/5.0, 1.0);
+    const r     = frac * maxR;
+    const angle = (hash(ev.debris_id) % 360)*Math.PI/180;
+    const dx = cx + r*Math.cos(angle), dy = cy + r*Math.sin(angle);
+    const col = ev.risk_level==='CRITICAL'?'#ff4455': ev.risk_level==='WARNING'?'#ffcc00':'#00ff88';
+    bsCtx.fillStyle=col; bsCtx.globalAlpha=pulse;
+    bsCtx.beginPath(); bsCtx.arc(dx,dy,4,0,Math.PI*2); bsCtx.fill();
+    bsCtx.globalAlpha=.7; bsCtx.font='7px Courier New'; bsCtx.fillStyle=col;
+    bsCtx.fillText(`${(ev.tca_offset_s/60).toFixed(0)}m`, dx+5, dy-2);
+  });
+  bsCtx.globalAlpha=1;
+
+  // Legend
+  [['#ff4455','CRIT <100m',h-40],['#ffcc00','WARN <1km',h-26],['#00ff88','CAUT <5km',h-12]]
+    .forEach(([c,t,y])=>{
+      bsCtx.fillStyle=c; bsCtx.fillRect(6,y-6,6,6);
+      bsCtx.fillStyle='#4a6080'; bsCtx.font='8px Courier New'; bsCtx.fillText(t,16,y);
+    });
+}
+
+function hash(s){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))|0;return Math.abs(h)}
+
+// ════════════════════════════════════════════════════════════════
+//  FUEL GRID
+// ════════════════════════════════════════════════════════════════
+function renderFuelGrid() {
+  if (!snap) return;
+  const grid = document.getElementById('fuel-grid');
+  snap.satellites.forEach(sat => {
+    let cell = document.getElementById('fc-'+sat.id);
+    if (!cell) {
+      cell = document.createElement('div');
+      cell.className='fc'; cell.id='fc-'+sat.id;
+      cell.innerHTML=`<div class="fb-wrap"><div class="fb" id="fb-${sat.id}"></div></div><div class="fl" id="fl-${sat.id}"></div>`;
+      cell.onclick=()=>{ selectedSat=sat.id; renderFuelGrid(); };
+      grid.appendChild(cell);
+    }
+    const frac = Math.max(0, Math.min(1, sat.fuel_kg/50));
+    const bar  = document.getElementById('fb-'+sat.id);
+    const lbl  = document.getElementById('fl-'+sat.id);
+    const col  = frac>.5?'#00ff88':frac>.2?'#ffcc00':'#ff4455';
+    bar.style.height = (frac*100)+'%';
+    bar.style.background = col;
+    lbl.textContent = sat.id.slice(-4);
+    cell.title = `${sat.id}\nFuel: ${sat.fuel_kg.toFixed(1)}kg (${(frac*100).toFixed(0)}%)\n${sat.status}`;
+    cell.className = 'fc'
+      + (sat.id===selectedSat?' sel':'')
+      + (sat.active_conjunctions>0&&sat.status==='EVADING'?' crit': sat.active_conjunctions>0?' warn':'');
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  CDM OVERLAY
+// ════════════════════════════════════════════════════════════════
+function updateCdmList() {
+  const el = document.getElementById('cdm-list');
+  if (!status) return;
+  el.innerHTML = status.conjunctions.slice(0,8).map(c=>{
+    const cls = c.risk_level==='CRITICAL'?'':c.risk_level==='WARNING'?' w':' c';
+    const m = (c.miss_distance_km*1000).toFixed(0);
+    const t = (c.tca_offset_s/60).toFixed(0);
+    return `<div class="cdm${cls}">
+      ${c.satellite_id.slice(-4)} ↔ ${c.debris_id.slice(-8)}<br>
+      miss ${m}m · TCA ${t}min · ${c.risk_level}
+    </div>`;
+  }).join('');
+}
+
+// ════════════════════════════════════════════════════════════════
+//  ΔV CHART
+// ════════════════════════════════════════════════════════════════
+let dvChart = null;
+function initDvChart() {
+  dvChart = new Chart(document.getElementById('dv-chart').getContext('2d'), {
+    type:'line',
+    data:{
+      labels:[],
+      datasets:[
+        {label:'Total ΔV (m/s)',data:[],borderColor:'#00d4ff',backgroundColor:'rgba(0,212,255,.08)',
+         yAxisID:'y',tension:.3,pointRadius:0,borderWidth:1.5},
+        {label:'CDMs Active',data:[],borderColor:'#ffcc00',backgroundColor:'rgba(255,204,0,.08)',
+         yAxisID:'y1',tension:.3,pointRadius:0,borderWidth:1.5},
+      ]
+    },
+    options:{
+      animation:false, responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#c8d8f0',font:{family:'Courier New',size:9}}}},
+      scales:{
+        x:{ticks:{color:'#4a6080',font:{size:8},maxTicksLimit:6},grid:{color:'#1a3050'}},
+        y:{type:'linear',position:'left',ticks:{color:'#00d4ff',font:{size:8}},
+           grid:{color:'#1a3050'},title:{display:true,text:'ΔV m/s',color:'#00d4ff',font:{size:8}}},
+        y1:{type:'linear',position:'right',ticks:{color:'#ffcc00',font:{size:8}},
+            grid:{drawOnChartArea:false},
+            title:{display:true,text:'CDMs',color:'#ffcc00',font:{size:8}}},
+      }
+    }
+  });
+}
+
+function updateDvChart() {
+  if (!dvChart||!status) return;
+  const MAX=80, t=status.sim_time.slice(11,19);
+  dvHist.push({t, dv:status.total_dv_consumed_ms});
+  cdmHist.push({t, c:status.active_cdms});
+  if (dvHist.length>MAX){dvHist.shift();cdmHist.shift();}
+  dvChart.data.labels = dvHist.map(d=>d.t);
+  dvChart.data.datasets[0].data = dvHist.map(d=>d.dv);
+  dvChart.data.datasets[1].data = cdmHist.map(d=>d.c);
+  dvChart.update('none');
+}
+
+// ════════════════════════════════════════════════════════════════
+//  GANTT CHART
+// ════════════════════════════════════════════════════════════════
+const ganttCv  = document.getElementById('gantt-cv');
+const ganttCtx = ganttCv.getContext('2d');
+
+function drawGantt() {
+  const wrap = document.getElementById('gantt-wrap');
+  const W = wrap.clientWidth - 10;
+  const burns = status?.maneuver_log?.slice(-25) || [];
+
+  ganttCv.width = W;
+  if (!burns.length) {
+    ganttCv.height = 50;
+    ganttCtx.fillStyle='#4a6080'; ganttCtx.font='10px Courier New';
+    ganttCtx.fillText('No maneuvers yet — simulation running…', 20, 25);
+    return;
+  }
+
+  const ROW=20, LABEL=72, H=Math.max(50, burns.length*ROW+30);
+  ganttCv.height=H;
+  ganttCtx.fillStyle='#050a14'; ganttCtx.fillRect(0,0,W,H);
+
+  const now    = status?.sim_time ? new Date(status.sim_time) : new Date();
+  const winMs  = 3600*2*1000;   // 2-hour window
+
+  function tX(str){ return LABEL + ((new Date(str)-now)/winMs)*(W-LABEL-8); }
+
+  // Time axis
+  ganttCtx.fillStyle='#4a6080'; ganttCtx.font='8px Courier New';
+  for (let i=0;i<=4;i++){
+    const x = LABEL + (i/4)*(W-LABEL-8);
+    ganttCtx.fillText(`+${i*30}m`, x-8, 11);
+    ganttCtx.strokeStyle='#1a3050'; ganttCtx.lineWidth=.5;
+    ganttCtx.beginPath(); ganttCtx.moveTo(x,14); ganttCtx.lineTo(x,H); ganttCtx.stroke();
+  }
+  // Now line
+  ganttCtx.strokeStyle='#00d4ff'; ganttCtx.lineWidth=1; ganttCtx.setLineDash([3,2]);
+  ganttCtx.beginPath(); ganttCtx.moveTo(LABEL,14); ganttCtx.lineTo(LABEL,H); ganttCtx.stroke();
+  ganttCtx.setLineDash([]);
+
+  burns.forEach((b,i)=>{
+    const y   = 16 + i*ROW;
+    const bx  = Math.max(LABEL, tX(b.scheduled_at));
+    const bw  = Math.max(6, b.dv_mag_ms*1.5);
+    const col = b.maneuver_type==='EVASION'?'#ff4455'
+              : b.maneuver_type==='RECOVERY'?'#00ff88'
+              : b.maneuver_type==='EOL'?'#ff8800':'#00d4ff';
+
+    // Row bg
+    ganttCtx.fillStyle = i%2===0?'rgba(255,255,255,.02)':'rgba(0,0,0,0)';
+    ganttCtx.fillRect(LABEL,y,W-LABEL-8,ROW-1);
+
+    // Burn block
+    ganttCtx.fillStyle   = col+(b.executed?'44':'88');
+    ganttCtx.strokeStyle = col;
+    ganttCtx.lineWidth   = 1;
+    ganttCtx.fillRect(bx, y+2, bw, ROW-5);
+    ganttCtx.strokeRect(bx, y+2, bw, ROW-5);
+
+    // Cooldown band
+    ganttCtx.fillStyle='#22334455';
+    ganttCtx.fillRect(bx+bw, y+2, 10, ROW-5);
+
+    // Label
+    ganttCtx.fillStyle='#c8d8f0'; ganttCtx.font='8px Courier New';
+    ganttCtx.fillText(b.satellite_id.slice(-5), 2, y+13);
+    ganttCtx.fillStyle=col; ganttCtx.font='7px Courier New';
+    ganttCtx.fillText(b.maneuver_type.slice(0,3), bx+bw+12, y+13);
+
+    // Status dot
+    ganttCtx.fillStyle = b.executed?'#00ff88':'#ffcc00';
+    ganttCtx.beginPath(); ganttCtx.arc(LABEL-5, y+10, 3, 0, Math.PI*2); ganttCtx.fill();
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  HEADER & ALERTS
+// ════════════════════════════════════════════════════════════════
+let lastCritCount = 0;
+function updateHeader() {
+  if (snap) {
+    document.getElementById('hSats').textContent  = snap.satellites.length;
+    document.getElementById('hDeb').textContent   = snap.debris_cloud.length;
+    document.getElementById('sim-clock').textContent = 'SIM '+snap.timestamp;
+  }
+  if (status) {
+    document.getElementById('hCdm').textContent  = status.active_cdms;
+    document.getElementById('hCrit').textContent = status.critical_cdms;
+    document.getElementById('hDv').textContent   = status.total_dv_consumed_ms.toFixed(2);
+    document.getElementById('hManv').textContent = status.executed_maneuvers;
+
+    const cdmPill  = document.getElementById('hCdmPill');
+    const critPill = document.getElementById('hCritPill');
+    cdmPill.classList.toggle('alert', status.active_cdms>0);
+    critPill.classList.toggle('alert', status.critical_cdms>0);
+
+    // Alert banner for new critical CDMs
+    if (status.critical_cdms > lastCritCount) {
+      showAlert(`⚠ ${status.critical_cdms} CRITICAL CONJUNCTION(S) — AUTO-EVASION SCHEDULED`);
+    }
+    lastCritCount = status.critical_cdms;
+  }
+}
+
+let alertTimer = null;
+function showAlert(msg) {
+  const el = document.getElementById('alert-banner');
+  el.textContent = msg; el.style.display='block';
+  clearTimeout(alertTimer);
+  alertTimer = setTimeout(()=>{ el.style.display='none'; }, 5000);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  TOOLTIP
+// ════════════════════════════════════════════════════════════════
+function showTip(event, sat) {
+  const tt = document.getElementById('tooltip');
+  tt.style.display='block';
+  tt.style.left=(event.clientX+12)+'px';
+  tt.style.top =(event.clientY-8)+'px';
+  const frac=(sat.fuel_kg/50*100).toFixed(0);
+  const col=sat.status==='NOMINAL'?'#00ff88':sat.status==='EVADING'?'#ff4455':'#ffcc00';
+  tt.innerHTML=`<b>${sat.id}</b><br>
+    Lat ${sat.lat.toFixed(2)}°  Lon ${sat.lon.toFixed(2)}°<br>
+    Alt ${sat.alt.toFixed(1)} km<br>
+    Fuel ${sat.fuel_kg.toFixed(2)} kg (${frac}%)<br>
+    Status <span style="color:${col}">${sat.status}</span><br>
+    Active CDMs ${sat.active_conjunctions}`;
+}
+function hideTip() { document.getElementById('tooltip').style.display='none'; }
+
+// ════════════════════════════════════════════════════════════════
+//  SPEED / PAUSE CONTROLS
+// ════════════════════════════════════════════════════════════════
+function cycleSpeed() {
+  speedIdx = (speedIdx+1)%SPEEDS.length;
+  const s = SPEEDS[speedIdx];
+  document.getElementById('speed-btn').textContent = s+'×';
+  // Tell backend to use this speed (via a sim step call is enough; backend has its own loop)
+}
+
+function togglePause() {
+  paused = !paused;
+  const btn = document.getElementById('pause-btn');
+  btn.textContent = paused ? '▶ RESUME' : '⏸ PAUSE';
+  btn.style.background = paused ? '#00ff88' : '#ffcc00';
+  if (!paused) fetchLoop(); // resume fetching
+}
+
+// ════════════════════════════════════════════════════════════════
+//  DATA FETCHING
+// ════════════════════════════════════════════════════════════════
+async function fetchSnap() {
+  try {
+    const r = await fetch('/api/visualization/snapshot');
+    if (r.ok) snap = await r.json();
+  } catch(_){}
+}
+async function fetchStatus() {
+  try {
+    const r = await fetch('/api/status');
+    if (r.ok) status = await r.json();
+  } catch(_){}
+}
+
+// ════════════════════════════════════════════════════════════════
+//  RENDER LOOP (60 fps canvas animation)
+// ════════════════════════════════════════════════════════════════
+let frame=0;
+function renderLoop() {
+  frame++;
+  renderGroundTrack();
+  drawBullseye();
+  if (frame%2===0)  renderFuelGrid();
+  if (frame%6===0)  { updateDvChart(); drawGantt(); }
+  updateHeader();
+  requestAnimationFrame(renderLoop);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  POLLING
+// ════════════════════════════════════════════════════════════════
+function fetchLoop() {
+  if (!paused) {
+    fetchSnap();
+    fetchStatus();
+  }
+  setTimeout(fetchLoop, 400);  // poll every 400ms
+}
+
+// ════════════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════════════
+async function init() {
+  initDvChart();
+  await fetchSnap();
+  await fetchStatus();
+  fetchLoop();
+  renderLoop();
+}
+
+window.addEventListener('resize', ()=>{ drawGantt(); renderFuelGrid(); });
+init();
+</script>
+</body>
+</html>

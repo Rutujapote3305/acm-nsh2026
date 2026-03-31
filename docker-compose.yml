@@ -1,0 +1,21 @@
+version: "3.9"
+
+services:
+  acm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: acm_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - GS_CSV=data/ground_stations.csv
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
