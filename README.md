@@ -186,15 +186,33 @@ d²r/dt² = −(μ/|r|³)r + a_J2
 - EOL graveyard burn at fuel < 5%
 
 ---
+## How to Run
 
-## Submission Checklist
+### Prerequisites
+- Docker Desktop installed
+- Port 8000 available
 
-- [ ] GitHub repo is **public**
-- [ ] `Dockerfile` at root using `ubuntu:22.04` ✅
-- [ ] Port `8000` exposed and bound to `0.0.0.0` ✅
-- [ ] All 5 endpoints pass grader tests ✅
-- [ ] Technical report PDF
-- [ ] Video demo ≤ 5 min
+### Steps
+```bash
+# 1. Clone the repository
+git clone https://github.com/Rutujapote3305/acm-nsh2026.git
+cd acm-nsh2026
+
+# 2. Build the Docker image
+docker build -t acm-nsh2026 .
+
+# 3. Run the container
+docker run -d -p 8000:8000 acm-nsh2026
+
+# 4. Open the dashboard
+# Visit: http://localhost:8000
+
+# 5. Verify API is live
+curl http://localhost:8000/api/health
+```
+
+### Live Demo
+Already deployed at: https://acm-nsh2026-production.up.railway.app
 
 ```powershell
 git init
